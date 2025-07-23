@@ -1,0 +1,10 @@
+{
+  "pet_id": "string",
+  "date": "date",
+  "food_amount": "integer (gram)",
+  "water_intake": "integer (ml)",
+  "sleep_hours": "float (hours)",
+  "movement_count": "integer (steps)",
+  "meow_count": "integer (times)",
+  "weight_kg": "float (kg)"
+}
