@@ -1,0 +1,217 @@
+SparkSession và các đường dẫn đã được cấu hình.
+
+--- A. Định nghĩa Hằng số và Ngưỡng Species-Specific ---
+Đã định nghĩa các hằng số và ngưỡng species-specific.
+
+--- B. Đọc dữ liệu đã gộp từ file CSV: merged_pet_data.csv ---
+Đã đọc 10000 bản ghi từ file CSV đã gộp.
+
+Schema của DataFrame dữ liệu thô:
+root
+ |-- pet_id: string (nullable = true)
+ |-- date: date (nullable = true)
+ |-- food_amount: double (nullable = true)
+ |-- sleep_hours: double (nullable = true)
+ |-- meow_count: integer (nullable = true)
+ |-- weight_kg: double (nullable = true)
+ |-- name: string (nullable = true)
+ |-- species: string (nullable = true)
+ |-- breed: string (nullable = true)
+ |-- gender: string (nullable = true)
+ |-- birth_year: integer (nullable = true)
+
+
+5 dòng đầu tiên của DataFrame dữ liệu thô:
++------+----------+-----------+-----------+----------+---------+------+-------+-----------------+------+----------+
+|pet_id|date      |food_amount|sleep_hours|meow_count|weight_kg|name  |species|breed            |gender|birth_year|
++------+----------+-----------+-----------+----------+---------+------+-------+-----------------+------+----------+
+|pet006|2024-10-25|286.0      |13.4       |3         |4.0      |Sandra|dog    |Siamese          |female|2022      |
+|pet006|2024-09-25|228.0      |13.4       |2         |4.4      |Sandra|dog    |Siamese          |female|2022      |
+|pet013|2025-06-17|191.0      |12.9       |4         |2.5      |Adam  |dog    |British Shorthair|male  |2018      |
+|pet014|2025-04-05|204.0      |17.9       |6         |5.6      |Kent  |dog    |Munchkin         |female|2016      |
+|pet009|2024-11-13|191.0      |12.4       |6         |4.9      |Justin|cat    |Persian          |male  |2015      |
++------+----------+-----------+-----------+----------+---------+------+-------+-----------------+------+----------+
+only showing top 5 rows
+
+Đã xử lý giá trị thiếu cho các cột số trong df_raw_data.
+
+--- C. Đọc và tích hợp Pet Profiles ---
+Đã đọc thông tin Pet Profiles.
+Đã join dữ liệu sức khỏe với Pet Profiles.
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+
+|pet_id|date      |food_amount|sleep_hours|meow_count|weight_kg|gender|birth_year|species|name  |breed            |
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+
+|pet006|2024-10-25|286.0      |13.4       |3         |4.0      |female|2022      |dog    |Sandra|Siamese          |
+|pet006|2024-09-25|228.0      |13.4       |2         |4.4      |female|2022      |dog    |Sandra|Siamese          |
+|pet009|2024-11-13|191.0      |12.4       |6         |4.9      |male  |2015      |cat    |Justin|Persian          |
+|pet013|2025-06-17|191.0      |12.9       |4         |2.5      |male  |2018      |dog    |Adam  |British Shorthair|
+|pet014|2025-04-05|204.0      |17.9       |6         |5.6      |female|2016      |dog    |Kent  |Munchkin         |
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+
+only showing top 5 rows
+
+
+--- D. Đọc và tích hợp Owner Notes ---
+Đã đọc 14652 bản ghi từ owner_notes_generated.md.
++----------+-----------------------------------------------------------------------+------+
+|date      |note_text                                                              |pet_id|
++----------+-----------------------------------------------------------------------+------+
+|2024-01-01|Charlene rất năng động hôm nay, chạy nhảy khắp sân.                    |pet001|
+|2024-01-02|Charlene ăn hết sạch thức ăn trong vòng vài phút. Có vẻ rất ngon miệng.|pet001|
+|2024-01-04|Bộ lông của Charlene trông rất bóng mượt và khỏe mạnh.                 |pet001|
+|2024-01-05|Charlene trông nhà rất tốt, sủa khi có người lạ đi qua.                |pet001|
+|2024-01-06|Charlene có vẻ đau ở bụng khi tôi chạm vào.                            |pet001|
++----------+-----------------------------------------------------------------------+------+
+only showing top 5 rows
+
+Đã join dữ liệu sức khỏe với Owner Notes.
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+-------------------------------------------------+
+|pet_id|date      |food_amount|sleep_hours|meow_count|weight_kg|gender|birth_year|species|name  |breed            |note_text                                        |
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+-------------------------------------------------+
+|pet006|2024-09-25|228.0      |13.4       |2         |4.4      |female|2022      |dog    |Sandra|Siamese          |Sandra rất năng động hôm nay, chạy nhảy khắp sân.|
+|pet014|2025-04-05|204.0      |17.9       |6         |5.6      |female|2016      |dog    |Kent  |Munchkin         |NULL                                             |
+|pet013|2025-06-17|191.0      |12.9       |4         |2.5      |male  |2018      |dog    |Adam  |British Shorthair|NULL                                             |
+|pet009|2024-11-13|191.0      |12.4       |6         |4.9      |male  |2015      |cat    |Justin|Persian          |Justin đi tiểu ra máu. Rất đáng lo ngại!         |
+|pet018|2024-07-31|294.0      |14.1       |8         |4.5      |female|2016      |cat    |Amy   |Bengal           |Amy chơi đùa với đồ chơi lông vũ suốt buổi chiều.|
++------+----------+-----------+-----------+----------+---------+------+----------+-------+------+-----------------+-------------------------------------------------+
+only showing top 5 rows
+
+
+--- E. Tách dữ liệu thành Chó và Mèo ---
+Số lượng bản ghi cho chó: 5026
+Số lượng bản ghi cho mèo: 4974
+
+--- F. Áp dụng phân tích Species-Specific ---
+Bắt đầu phân tích cho loài: DOG
+Hoàn thành phân tích cho loài: DOG
+Bắt đầu phân tích cho loài: CAT
+Hoàn thành phân tích cho loài: CAT
+
+--- Kết quả phân tích sơ bộ cho CHÓ ---
++------+----------+--------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+|pet_id|date      |name    |species|food_amount|is_food_anomaly|sleep_hours|is_sleep_anomaly|weight_kg|is_weight_anomaly|meow_count|is_meow_anomaly|note_is_stressful|note_is_illness_related|risk_score|health_alert_level|
++------+----------+--------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+|pet001|2025-01-19|Charlene|dog    |152.0      |false          |15.2       |false           |5.0      |false            |9         |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet001|2024-07-12|Charlene|dog    |193.0      |false          |12.2       |false           |2.7      |true             |3         |false          |false            |false                  |2         |Vàng (Theo dõi)   |
+|pet001|2025-05-26|Charlene|dog    |225.0      |false          |13.9       |false           |6.5      |false            |6         |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet001|2024-12-22|Charlene|dog    |299.0      |false          |12.5       |false           |4.0      |true             |2         |false          |false            |false                  |2         |Vàng (Theo dõi)   |
+|pet001|2024-10-13|Charlene|dog    |166.0      |false          |16.4       |true            |3.9      |true             |1         |false          |false            |false                  |3         |Cam (Cảnh báo)    |
+|pet001|2025-04-09|Charlene|dog    |195.0      |false          |16.6       |true            |3.4      |true             |5         |false          |false            |false                  |3         |Cam (Cảnh báo)    |
+|pet001|2025-05-24|Charlene|dog    |289.0      |false          |12.3       |false           |5.8      |false            |3         |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet001|2025-03-28|Charlene|dog    |219.0      |false          |13.1       |false           |3.2      |true             |6         |false          |false            |false                  |2         |Vàng (Theo dõi)   |
+|pet001|2025-03-01|Charlene|dog    |256.0      |false          |14.4       |false           |5.7      |false            |10        |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet001|2024-08-10|Charlene|dog    |249.0      |false          |15.0       |false           |2.9      |true             |0         |false          |false            |false                  |2         |Vàng (Theo dõi)   |
++------+----------+--------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+only showing top 10 rows
+
+
+--- Kết quả phân tích sơ bộ cho MÈO ---
++------+----------+------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+|pet_id|date      |name  |species|food_amount|is_food_anomaly|sleep_hours|is_sleep_anomaly|weight_kg|is_weight_anomaly|meow_count|is_meow_anomaly|note_is_stressful|note_is_illness_related|risk_score|health_alert_level|
++------+----------+------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+|pet002|2024-11-08|Steven|cat    |248.0      |true           |16.4       |false           |5.2      |false            |3         |false          |false            |false                  |1         |Vàng (Theo dõi)   |
+|pet002|2024-09-14|Steven|cat    |256.0      |true           |14.3       |false           |2.6      |false            |9         |false          |false            |false                  |1         |Vàng (Theo dõi)   |
+|pet002|2025-01-19|Steven|cat    |260.0      |true           |12.1       |false           |3.2      |false            |9         |false          |false            |false                  |1         |Vàng (Theo dõi)   |
+|pet002|2024-08-09|Steven|cat    |211.0      |false          |12.7       |false           |2.7      |false            |4         |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet002|2025-05-28|Steven|cat    |209.0      |false          |12.3       |false           |2.7      |false            |10        |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet002|2025-02-26|Steven|cat    |287.0      |true           |12.6       |false           |6.1      |true             |7         |false          |false            |false                  |3         |Cam (Cảnh báo)    |
+|pet002|2024-11-15|Steven|cat    |262.0      |true           |15.4       |false           |6.0      |false            |4         |false          |false            |true                   |4         |Cam (Cảnh báo)    |
+|pet002|2025-07-02|Steven|cat    |157.0      |false          |14.0       |false           |3.5      |false            |4         |false          |false            |false                  |0         |Xanh (Bình thường)|
+|pet002|2025-03-29|Steven|cat    |272.0      |true           |16.2       |false           |3.4      |false            |8         |false          |false            |false                  |1         |Vàng (Theo dõi)   |
+|pet002|2024-11-13|Steven|cat    |217.0      |false          |17.5       |false           |2.6      |false            |10        |false          |false            |false                  |0         |Xanh (Bình thường)|
++------+----------+------+-------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+-----------------+-----------------------+----------+------------------+
+only showing top 10 rows
+
+
+--- G. Tổng hợp báo cáo cảnh báo sức khỏe cuối cùng ---
+Số lượng bản ghi cảnh báo sức khỏe được tạo: 6275
+
+5 bản ghi cảnh báo sức khỏe hàng đầu (tổng hợp):
++------+--------+-------+--------+----------+----------+------------------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+---------+-----------------+-----------------------+
+|pet_id|name    |species|breed   |date      |risk_score|health_alert_level|food_amount|is_food_anomaly|sleep_hours|is_sleep_anomaly|weight_kg|is_weight_anomaly|meow_count|is_meow_anomaly|note_text|note_is_stressful|note_is_illness_related|
++------+--------+-------+--------+----------+----------+------------------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+---------+-----------------+-----------------------+
+|pet011|Lisa    |dog    |Siamese |2025-07-05|3         |Cam (Cảnh báo)    |251.0      |false          |17.5       |true            |3.1      |true             |1         |false          |NULL     |false            |false                  |
+|pet017|Tracy   |cat    |Siamese |2025-07-05|3         |Cam (Cảnh báo)    |289.0      |true           |14.4       |false           |6.5      |true             |9         |false          |NULL     |false            |false                  |
+|pet011|Lisa    |dog    |Siamese |2025-07-05|3         |Cam (Cảnh báo)    |253.0      |false          |17.6       |true            |4.6      |true             |5         |false          |NULL     |false            |false                  |
+|pet020|Veronica|cat    |Munchkin|2025-07-05|3         |Cam (Cảnh báo)    |295.0      |true           |16.5       |false           |6.4      |true             |0         |false          |NULL     |false            |false                  |
+|pet006|Sandra  |dog    |Siamese |2025-07-05|2         |Vàng (Theo dõi)   |252.0      |false          |12.8       |false           |4.4      |true             |10        |false          |NULL     |false            |false                  |
++------+--------+-------+--------+----------+----------+------------------+-----------+---------------+-----------+----------------+---------+-----------------+----------+---------------+---------+-----------------+-----------------------+
+only showing top 5 rows
+
+
+--- H. Phân tích xu hướng theo giống và theo tháng ---
+
+Báo cáo xu hướng trung bình theo giống:
++-------+-----------------+------------------+---------------+-------------+
+|species|breed            |avg_food_amount_kg|avg_sleep_hours|avg_weight_kg|
++-------+-----------------+------------------+---------------+-------------+
+|cat    |Bengal           |225.77            |15.04          |4.54         |
+|cat    |British Shorthair|225.72            |14.91          |4.5          |
+|cat    |Munchkin         |224.03            |14.96          |4.56         |
+|cat    |Persian          |224.56            |15.02          |4.52         |
+|cat    |Siamese          |226.38            |15.03          |4.49         |
+|dog    |Bengal           |227.86            |15.06          |4.47         |
+|dog    |British Shorthair|224.93            |15.01          |4.42         |
+|dog    |Munchkin         |222.27            |14.91          |4.51         |
+|dog    |Persian          |222.87            |15.11          |4.48         |
+|dog    |Siamese          |226.27            |14.95          |4.52         |
++-------+-----------------+------------------+---------------+-------------+
+
+
+Báo cáo xu hướng trung bình theo tháng:
++-------+----------+------------------+---------------+-------------+-------------+
+|species|year_month|avg_food_amount_kg|avg_sleep_hours|avg_weight_kg|total_records|
++-------+----------+------------------+---------------+-------------+-------------+
+|cat    |2024-07   |225.4             |14.96          |4.5          |367          |
+|cat    |2024-08   |223.26            |15.01          |4.59         |419          |
+|cat    |2024-09   |223.61            |14.89          |4.48         |396          |
+|cat    |2024-10   |227.45            |15.0           |4.59         |429          |
+|cat    |2024-11   |223.48            |15.08          |4.47         |442          |
+|cat    |2024-12   |225.07            |15.07          |4.51         |440          |
+|cat    |2025-01   |223.73            |14.91          |4.58         |415          |
+|cat    |2025-02   |228.79            |14.86          |4.52         |367          |
+|cat    |2025-03   |228.3             |15.0           |4.49         |394          |
+|cat    |2025-04   |224.9             |15.02          |4.56         |426          |
+|cat    |2025-05   |223.0             |14.98          |4.47         |414          |
+|cat    |2025-06   |223.86            |15.01          |4.6          |404          |
+|cat    |2025-07   |227.93            |14.88          |4.51         |61           |
+|dog    |2024-07   |226.4             |15.01          |4.5          |326          |
+|dog    |2024-08   |227.64            |15.02          |4.45         |397          |
+|dog    |2024-09   |224.86            |14.91          |4.47         |423          |
+|dog    |2024-10   |223.51            |14.95          |4.48         |447          |
+|dog    |2024-11   |226.11            |15.06          |4.46         |408          |
+|dog    |2024-12   |225.41            |14.91          |4.52         |430          |
+|dog    |2025-01   |224.47            |15.01          |4.52         |431          |
++-------+----------+------------------+---------------+-------------+-------------+
+only showing top 20 rows
+
+
+--- I. Áp dụng Học máy để dự đoán cấp độ cảnh báo ---
+Bắt đầu huấn luyện mô hình Random Forest...
+Huấn luyện mô hình hoàn tất.
+
+Kết quả dự đoán của mô hình:
++------+----------+------------------+----------+-----+-----------------------------------------------+
+|pet_id|date      |health_alert_level|prediction|label|features                                       |
++------+----------+------------------+----------+-----+-----------------------------------------------+
+|pet001|2024-07-07|Xanh (Bình thường)|0.0       |0.0  |(12,[0,1,2,3],[222.0,14.2,6.0,8.0])            |
+|pet001|2024-07-12|Vàng (Theo dõi)   |1.0       |1.0  |(12,[0,1,2,3,6],[277.0,12.7,2.8,6.0,1.0])      |
+|pet001|2024-07-14|Vàng (Theo dõi)   |1.0       |1.0  |(12,[0,1,2,3,6],[188.0,14.6,3.8,4.0,1.0])      |
+|pet001|2024-07-16|Vàng (Theo dõi)   |1.0       |1.0  |(12,[0,1,2,3,5],[248.0,18.0,5.3,9.0,1.0])      |
+|pet001|2024-07-21|Vàng (Theo dõi)   |1.0       |1.0  |(12,[0,1,2,3,6],[216.0,13.3,3.4,8.0,1.0])      |
+|pet001|2024-07-27|Cam (Cảnh báo)    |2.0       |2.0  |(12,[0,1,2,3,5,6],[278.0,17.8,3.7,8.0,1.0,1.0])|
+|pet001|2024-08-01|Đỏ (Nguy cơ cao)  |3.0       |3.0  |(12,[0,1,2,3,6,9],[269.0,12.5,2.9,4.0,1.0,1.0])|
+|pet001|2024-08-07|Cam (Cảnh báo)    |2.0       |2.0  |(12,[0,1,2,3,6,8],[209.0,12.3,3.2,4.0,1.0,1.0])|
+|pet001|2024-08-13|Vàng (Theo dõi)   |1.0       |1.0  |(12,[0,1,2,3,5],[254.0,16.2,5.7,2.0,1.0])      |
+|pet001|2024-08-15|Xanh (Bình thường)|0.0       |0.0  |(12,[0,1,2,3],[178.0,12.1,5.3,3.0])            |
++------+----------+------------------+----------+-----+-----------------------------------------------+
+only showing top 10 rows
+
+
+--- J. Lưu kết quả ra HDFS ---
+Đã xóa các thư mục output cũ.
+Báo cáo cảnh báo sức khỏe cuối cùng đã được lưu thành công tại: hdfs:///user/ntl/capstone_data/analyzed_data/pet_health_alerts_final.csv
+Báo cáo xu hướng theo giống đã được lưu thành công tại: hdfs:///user/ntl/capstone_data/analyzed_data/breed_trends.csv
+Báo cáo xu hướng theo tháng đã được lưu thành công tại: hdfs:///user/ntl/capstone_data/analyzed_data/monthly_trends.csv
+Báo cáo dự đoán học máy đã được lưu thành công tại: hdfs:///user/ntl/capstone_data/analyzed_data/ml_predictions.csv
+
+SparkSession đã được dừng.

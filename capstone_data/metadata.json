@@ -1,0 +1,13 @@
+{
+  "audio_samples": [
+    "cat_meow_01.wav",
+    "cat_meow_02.wav"
+  ],
+  "image_samples": [
+    "pet_miu_eating.jpg"
+  ],
+  "text_logs": [
+    "feeder_device_log.txt",
+    "owner_notes.md"
+  ]
+}
