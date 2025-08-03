@@ -1,0 +1,11 @@
+species,breed,avg_food_amount_kg,avg_sleep_hours,avg_weight_kg
+cat,Bengal,225.77,15.04,4.54
+cat,British Shorthair,225.72,14.91,4.5
+cat,Munchkin,224.03,14.96,4.56
+cat,Persian,224.56,15.02,4.52
+cat,Siamese,226.38,15.03,4.49
+dog,Bengal,227.86,15.06,4.47
+dog,British Shorthair,224.93,15.01,4.42
+dog,Munchkin,222.27,14.91,4.51
+dog,Persian,222.87,15.11,4.48
+dog,Siamese,226.27,14.95,4.52

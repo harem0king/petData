@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bảng Điều Khiển Sức Khỏe Thú Cưng</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+        }
+        .container-fluid {
+            margin-top: 20px;
+        }
+        .sidebar {
+            background-color: #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,.05);
+            height: 100vh; /* Full height sidebar */
+            overflow-y: auto; /* Scrollable if content overflows */
+        }
+        .main-content {
+            padding: 20px;
+        }
+        .card {
+            margin-bottom: 20px;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,.05);
+        }
+        .card-header {
+            background-color: #007bff;
+            color: white;
+            border-radius: 8px 8px 0 0;
+            padding: 10px 15px;
+            font-weight: bold;
+        }
+        .pet-dropdown-label {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .plot-container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .plot-container img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .summary-box {
+            background-color: #ffffff;
+            border: 1px solid #e2e6ea;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .summary-box h5 {
+            color: #007bff;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+        .summary-box p {
+            margin-bottom: 5px;
+        }
+        .text-green { color: #28a745; }
+        .text-yellow { color: #ffc107; }
+        .text-orange { color: #fd7e14; }
+        .text-red { color: #dc3545; }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                height: auto; /* Allow sidebar to collapse on small screens */
+                margin-bottom: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-3 sidebar">
+                <h4 class="mb-3">Thú cưng</h4>
+                <div class="form-group">
+                    <label for="petSelect" class="pet-dropdown-label">Chọn thú cưng:</label>
+                    <select class="form-control" id="petSelect" onchange="window.location.href = '/pet/' + this.value;">
+                        {% for pet_id in available_pet_ids %}
+                            <option value="{{ pet_id }}" {% if pet_id == selected_pet_id %}selected{% endif %}>{{ pet_id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <hr>
+
+                <h5>Thông tin hoạt động gần nhất ({{ pet_activity_summary.date if pet_activity_summary.date != 'N/A' else 'chưa có dữ liệu' }})</h5>
+                <div class="summary-box">
+                    <p><strong>Lượng thức ăn:</strong> {{ pet_activity_summary.food_amount|round(2) if pet_activity_summary.food_amount != 'N/A' else 'N/A' }} kg</p>
+                    <p><strong>Giờ ngủ:</strong> {{ pet_activity_summary.sleep_hours|round(1) if pet_activity_summary.sleep_hours != 'N/A' else 'N/A' }} giờ</p>
+                    <p><strong>Cân nặng:</strong> {{ pet_activity_summary.weight_kg|round(2) if pet_activity_summary.weight_kg != 'N/A' else 'N/A' }} kg</p>
+                    <p><strong>Số tiếng kêu:</strong> {{ pet_activity_summary.meow_count if pet_activity_summary.meow_count != 'N/A' else 'N/A' }}</p>
+                </div>
+
+                <h5 class="mt-4">Tóm tắt cảnh báo gần nhất ({{ pet_latest_alert_summary.latest_date }})</h5>
+                <div class="summary-box">
+                    <p><strong>Mức cảnh báo (Quy tắc):</strong> 
+                        {% if 'Đỏ' in pet_latest_alert_summary.health_alert_level %}<span class="text-red">{{ pet_latest_alert_summary.health_alert_level }}</span>
+                        {% elif 'Cam' in pet_latest_alert_summary.health_alert_level %}<span class="text-orange">{{ pet_latest_alert_summary.health_alert_level }}</span>
+                        {% elif 'Vàng' in pet_latest_alert_summary.health_alert_level %}<span class="text-yellow">{{ pet_latest_alert_summary.health_alert_level }}</span>
+                        {% elif 'Xanh' in pet_latest_alert_summary.health_alert_level %}<span class="text-green">{{ pet_latest_alert_summary.health_alert_level }}</span>
+                        {% else %}<span>{{ pet_latest_alert_summary.health_alert_level }}</span>
+                        {% endif %}
+                    </p>
+                    <p><strong>Dự đoán ML:</strong> 
+                        {% if pet_latest_alert_summary.ml_prediction | float >= 2.5 %}<span class="text-red">{{ pet_latest_alert_summary.ml_prediction }}</span>
+                        {% elif pet_latest_alert_summary.ml_prediction | float >= 1.5 %}<span class="text-orange">{{ pet_latest_alert_summary.ml_prediction }}</span>
+                        {% elif pet_latest_alert_summary.ml_prediction | float >= 0.5 %}<span class="text-yellow">{{ pet_latest_alert_summary.ml_prediction }}</span>
+                        {% elif pet_latest_alert_summary.ml_prediction != 'N/A' %}<span class="text-green">{{ pet_latest_alert_summary.ml_prediction }}</span>
+                        {% else %}<span>{{ pet_latest_alert_summary.ml_prediction }}</span>
+                        {% endif %}
+                    </p>
+                    <p><strong>Ghi chú:</strong> {{ pet_latest_alert_summary.note_summary }}</p>
+                </div>
+
+            </div>
+
+            <div class="col-md-9 main-content">
+                <h2 class="mb-4">Bảng Điều Khiển Sức Khỏe Thú Cưng - {{ selected_pet_id }}</h2>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                Thống kê mức cảnh báo sức khỏe
+                            </div>
+                            <div class="card-body plot-container">
+                                {% if alert_distribution_plot %}
+                                <img src="{{ url_for('static', filename=alert_distribution_plot.split('/')[-1]) }}" alt="Alert Distribution Plot">
+                                {% else %}
+                                <p>Không có dữ liệu để tạo biểu đồ phân bố cảnh báo.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                Tần suất Ghi nhận Dấu hiệu Stress và Bệnh tật
+                            </div>
+                            <div class="card-body plot-container">
+                                {% if keyword_frequency_plot %}
+                                <img src="{{ url_for('static', filename=keyword_frequency_plot.split('/')[-1]) }}" alt="Keyword Frequency Plot">
+                                {% else %}
+                                <p>Không có dữ liệu để tạo biểu đồ tần suất từ khóa.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                Xu hướng Cảnh báo Sức khỏe cho {{ selected_pet_id }}
+                            </div>
+                            <div class="card-body plot-container">
+                                {% if alert_trend_plot %}
+                                <img src="{{ url_for('static', filename=alert_trend_plot.split('/')[-1]) }}" alt="Alert Trend Plot">
+                                {% else %}
+                                <p>Không có dữ liệu để tạo biểu đồ xu hướng cảnh báo cho thú cưng này.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                Xu hướng Hoạt động hàng ngày cho {{ selected_pet_id }}
+                            </div>
+                            <div class="card-body plot-container">
+                                {% if activity_trend_plot %}
+                                <img src="{{ url_for('static', filename=activity_trend_plot.split('/')[-1]) }}" alt="Activity Trend Plot">
+                                {% else %}
+                                <p>Không có dữ liệu để tạo biểu đồ xu hướng hoạt động cho thú cưng này.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                Phân bố các chỉ số hoạt động của thú cưng theo loài
+                            </div>
+                            <div class="card-body plot-container">
+                                {% if overall_activity_boxplot %}
+                                <img src="{{ url_for('static', filename=overall_activity_boxplot.split('/')[-1]) }}" alt="Overall Activity Box Plot">
+                                {% else %}
+                                <p>Không có dữ liệu để tạo biểu đồ phân bố hoạt động tổng quan.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>

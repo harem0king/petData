@@ -1,0 +1,13 @@
+0: không tìm thấy lệnh
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+Generating data for yesterday...
+Data generated and saved to: /home/ntl/capstone_data/local_project/data_generator/temp_generated_data/daily_activity.csv, /home/ntl/capstone_data/local_project/data_generator/temp_generated_data/owner_notes_generated.csv
+Uploading /home/ntl/capstone_data/local_project/data_generator/temp_generated_data/daily_activity.csv to HDFS...
+Uploading /home/ntl/capstone_data/local_project/data_generator/temp_generated_data/owner_notes_generated.csv to HDFS...
+Data upload to HDFS complete.
+Bạn có thể kiểm tra trên HDFS UI: http://localhost:9870/explorer.html#/user/ntl/capstone_data/raw_data

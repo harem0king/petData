@@ -1,0 +1,85 @@
+body {
+    font-family: 'Roboto', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f0f2f5; /* Light gray background */
+    color: #333;
+    line-height: 1.6;
+}
+
+header {
+    background-color: #007BFF; /* Primary blue */
+    color: white;
+    padding: 1.5rem 0;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    margin: 0;
+    font-size: 2.5rem;
+}
+
+header p {
+    font-size: 1.1rem;
+    margin-top: 5px;
+}
+
+main {
+    padding: 30px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px; /* Space between sections */
+    justify-content: center;
+    max-width: 1200px; /* Max width for content */
+    margin: 20px auto; /* Center content */
+}
+
+.chart-section {
+    background-color: white;
+    padding: 25px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    text-align: center;
+    flex: 1 1 45%; /* Allows two charts per row on larger screens */
+    min-width: 450px; /* Minimum width for charts */
+    box-sizing: border-box; /* Include padding in width */
+}
+
+.chart-section.full-width {
+    flex: 1 1 95%; /* Make this section take full width */
+}
+
+.chart-section h2 {
+    color: #0056b3; /* Darker blue for headings */
+    font-size: 1.8rem;
+    margin-top: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+}
+
+.chart-section img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+footer {
+    text-align: center;
+    padding: 1.5rem 0;
+    margin-top: 40px;
+    background-color: #343A40; /* Dark gray for footer */
+    color: white;
+    font-size: 0.9rem;
+    box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .chart-section {
+        flex: 1 1 100%; /* Stack charts on smaller screens */
+        min-width: unset;
+    }
+}
