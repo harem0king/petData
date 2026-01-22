@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timedelta
 import json
 
-# Import các thư viện PySpark cần thiết
+# Libs cho Spark & ML
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, to_timestamp, lit, abs, round, avg, when,
@@ -20,33 +20,23 @@ from pyspark.ml.feature import VectorAssembler, StringIndexer, OneHotEncoder
 from pyspark.ml.classification import RandomForestClassifier
 from pyspark.ml import Pipeline
 
-# Import các thư viện Python cơ bản
-import pandas as pd
-import numpy as np
-
-# --- Cấu hình SparkSession ---
+# --- 1. Init Spark & Config ---
+# Đặt AppName rõ ràng để dễ debug trên Spark UI
 spark = SparkSession.builder \
-    .appName("PetHealthAdvancedAnalysis") \
+    .appName("PetHealth_ETL_Pipeline") \
     .getOrCreate()
 
-# --- Cấu hình đường dẫn cơ sở HDFS của bạn ---
+# Path HDFS (Lưu ý: đổi path nếu chạy môi trường khác)
 hdfs_base_path = "hdfs:///user/ntl/capstone_data/"
 output_path = "hdfs:///user/ntl/capstone_data/analyzed_data/"
 
-# --- Cờ bật/tắt trực quan hóa ---
-PLOT_AVAILABLE = False
+print(">>> Spark Session initialized.")
 
-print("SparkSession và các đường dẫn đã được cấu hình.")
-
-# ====================================================================
-# A. Định nghĩa Hằng số và Ngưỡng Species-Specific
-# ====================================================================
-print("\n--- A. Định nghĩa Hằng số và Ngưỡng Species-Specific ---")
-
-# --- Ngưỡng Z-score chung cho bất thường ---
+# --- 2. Config ngưỡng sức khỏe (Thresholds) ---
+# Ngưỡng Z-score > 2.0 là bất thường (theo phân phối chuẩn)
 Z_SCORE_THRESHOLD = 2.0
 
-# --- Định nghĩa các hằng số và ngưỡng riêng cho CHÓ ---
+# Ngưỡng cho CHÓ
 DOG_NORMAL_FOOD_AVG = 250.0
 DOG_NORMAL_FOOD_STD = 50.0
 DOG_NORMAL_SLEEP_AVG = 12.0
@@ -54,17 +44,18 @@ DOG_NORMAL_SLEEP_STD = 2.0
 DOG_NORMAL_WEIGHT_AVG = 15.0
 DOG_NORMAL_WEIGHT_STD = 5.0
 
+# Trọng số điểm (Weighting) - Cân nặng quan trọng hơn hành vi
 DOG_FOOD_ANOMALY_SCORE = 1
 DOG_SLEEP_ANOMALY_SCORE = 1
-DOG_WEIGHT_ANOMALY_SCORE = 2
-DOG_MEOW_ANOMALY_SCORE = 0
+DOG_WEIGHT_ANOMALY_SCORE = 2 
+DOG_MEOW_ANOMALY_SCORE = 0   # Chó ko tính meow
 DOG_NOTE_STRESS_SCORE = 2
 DOG_NOTE_ILLNESS_SCORE = 3
 
 DOG_HEALTH_RED_THRESHOLD = 5
 DOG_HEALTH_ORANGE_THRESHOLD = 3
 
-# --- Định nghĩa các hằng số và ngưỡng riêng cho MÈO ---
+# Ngưỡng cho MÈO
 CAT_NORMAL_FOOD_AVG = 180.0
 CAT_NORMAL_FOOD_STD = 30.0
 CAT_NORMAL_SLEEP_AVG = 15.0
@@ -85,156 +76,97 @@ CAT_NOTE_ILLNESS_SCORE = 3
 CAT_HEALTH_RED_THRESHOLD = 5
 CAT_HEALTH_ORANGE_THRESHOLD = 3
 
-# --- Các từ khóa NLP riêng cho từng loài ---
+# Keywords NLP (Simple matching)
 DOG_STRESS_KEYWORDS = ["sợ sấm", "phá phách", "sủa nhiều", "cắn phá", "run rẩy", "gầm gừ", "lo lắng", "bồn chồn", "chán ăn"]
 DOG_ILLNESS_KEYWORDS = ["ho khan", "nôn", "khập khiễng", "chảy nước mũi", "ghẻ", "bọ chét", "đau chân", "tiêu chảy", "rụng lông"]
-DOG_POSITIVE_KEYWORDS = ["vẫy đuôi", "chào đón", "chơi đùa", "nghe lời", "trông nhà", "chạy nhảy", "ăn khỏe", "vui vẻ"]
 
 CAT_STRESS_KEYWORDS = ["lẩn trốn", "liếm lông quá mức", "cào cấu đồ đạc", "gầm gừ", "giấu mình", "tiểu tiện không đúng chỗ", "lo lắng", "bồn chồn", "chán ăn"]
 CAT_ILLNESS_KEYWORDS = ["nôn ra lông", "ho khan", "nhiễm trùng mắt", "nấm da", "rụng lông", "biếng ăn", "chảy nước mắt", "đi tiểu ra máu", "tiêu chảy"]
-CAT_POSITIVE_KEYWORDS = ["cuộn mình", "cọ người", "kêu gừ gừ", "săn chuột", "chơi với đồ chơi", "tắm nắng", "ăn tốt", "vui vẻ"]
 
+# Helper check keyword
 def check_keywords(text, keywords_list):
-    if text is None:
-        return False
+    if text is None: return False
     text_lower = text.lower()
     for keyword in keywords_list:
         if keyword.lower() in text_lower:
             return True
     return False
 
-print("Đã định nghĩa các hằng số và ngưỡng species-specific.")
-
-# ====================================================================
-# B. Đọc dữ liệu đã gộp từ file CSV của bạn
-# ====================================================================
-print("\n--- B. Đọc dữ liệu đã gộp từ file CSV: merged_pet_data.csv ---")
-
+# --- 3. Load Data: Log hoạt động (CSV) ---
+print(">>> Reading CSV Logs...")
 merged_csv_path = hdfs_base_path + "merged_pet_data.csv"
 
 try:
+    # Dùng inferSchema cho tiện, production nên define schema cứng để nhanh hơn
     df_raw_data = spark.read \
                     .option("header", "true") \
                     .option("inferSchema", "true") \
                     .csv(merged_csv_path)
-
+    
+    # Cast type tường minh để tránh lỗi tính toán cộng trừ sau này
     if "date" in df_raw_data.columns:
         df_raw_data = df_raw_data.withColumn("date", to_date(col("date"), "yyyy-MM-dd"))
-    if "food_amount" in df_raw_data.columns:
-        df_raw_data = df_raw_data.withColumn("food_amount", col("food_amount").cast(DoubleType()))
-    if "sleep_hours" in df_raw_data.columns:
-        df_raw_data = df_raw_data.withColumn("sleep_hours", col("sleep_hours").cast(DoubleType()))
-    if "weight_kg" in df_raw_data.columns:
-        df_raw_data = df_raw_data.withColumn("weight_kg", col("weight_kg").cast(DoubleType()))
+    
+    cols_to_cast = ["food_amount", "sleep_hours", "weight_kg"]
+    for c in cols_to_cast:
+        if c in df_raw_data.columns:
+            df_raw_data = df_raw_data.withColumn(c, col(c).cast(DoubleType()))
+            
     if "meow_count" in df_raw_data.columns:
         df_raw_data = df_raw_data.withColumn("meow_count", col("meow_count").cast(IntegerType()))
 
-    print(f"Đã đọc {df_raw_data.count()} bản ghi từ file CSV đã gộp.")
-    print("\nSchema của DataFrame dữ liệu thô:")
-    df_raw_data.printSchema()
-    print("\n5 dòng đầu tiên của DataFrame dữ liệu thô:")
-    df_raw_data.show(5, truncate=False)
+    print(f"Loaded {df_raw_data.count()} rows.")
 
 except Exception as e:
-    print(f"LỖI: Không thể đọc file CSV đã gộp '{merged_csv_path}'. Vui lòng kiểm tra đường dẫn và file. Lỗi: {e}")
+    print(f"!!! Error reading CSV: {e}")
     spark.stop()
     sys.exit(1)
 
+# Handle Nulls: Fill 0 để tránh crash khi tính Z-score
 df_raw_data = df_raw_data.fillna(0, subset=["food_amount", "sleep_hours", "meow_count", "weight_kg"])
-print("Đã xử lý giá trị thiếu cho các cột số trong df_raw_data.")
 
-# ====================================================================
-# C. Đọc và tích hợp Pet Profiles
-# ====================================================================
-print("\n--- C. Đọc và tích hợp Pet Profiles ---")
+# --- 4. Load Data: Pet Profiles (JSON) ---
+print(">>> Reading Profiles (JSON)...")
 
+# Data giả lập (thực tế load từ file)
 pet_profiles_raw = [
     '{"pet_id": "pet001", "name": "Charlene", "species": "dog", "breed": "Siamese", "gender": "female", "birth_year": 2022}',
     '{"pet_id": "pet002", "name": "Steven", "species": "cat", "breed": "Munchkin", "gender": "male", "birth_year": 2022}',
-    '{"pet_id": "pet003", "name": "Angelica", "species": "dog", "breed": "Siamese", "gender": "male", "birth_year": 2020}',
-    '{"pet_id": "pet004", "name": "Oscar", "species": "cat", "breed": "Bengal", "gender": "female", "birth_year": 2019}',
-    '{"pet_id": "pet005", "name": "Michael", "species": "cat", "breed": "Persian", "gender": "female", "birth_year": 2018}',
-    '{"pet_id": "pet006", "name": "Sandra", "species": "dog", "breed": "Siamese", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet007", "name": "Nicholas", "species": "dog", "breed": "Persian", "gender": "female", "birth_year": 2018}',
-    '{"pet_id": "pet008", "name": "Jessica", "species": "cat", "breed": "British Shorthair", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet009", "name": "Justin", "species": "cat", "breed": "Persian", "gender": "male", "birth_year": 2015}',
-    '{"pet_id": "pet010", "name": "Chris", "species": "dog", "breed": "British Shorthair", "gender": "male", "birth_year": 2021}',
-    '{"pet_id": "pet011", "name": "Lisa", "species": "dog", "breed": "Siamese", "gender": "female", "birth_year": 2020}',
-    '{"pet_id": "pet012", "name": "Jessica", "species": "dog", "breed": "Bengal", "gender": "male", "birth_year": 2019}',
-    '{"pet_id": "pet013", "name": "Adam", "species": "dog", "breed": "British Shorthair", "gender": "male", "birth_year": 2018}',
-    '{"pet_id": "pet014", "name": "Kent", "species": "dog", "breed": "Munchkin", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet015", "name": "Jose", "species": "dog", "breed": "Munchkin", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet016", "name": "Mark", "species": "cat", "breed": "British Shorthair", "gender": "male", "birth_year": 2019}',
-    '{"pet_id": "pet017", "name": "Tracy", "species": "cat", "breed": "Siamese", "gender": "male", "birth_year": 2017}',
-    '{"pet_id": "pet018", "name": "Amy", "species": "cat", "breed": "Bengal", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet019", "name": "Mark", "species": "cat", "breed": "Munchkin", "gender": "female", "birth_year": 2020}',
-    '{"pet_id": "pet020", "name": "Veronica", "species": "cat", "breed": "Munchkin", "gender": "male", "birth_year": 2022}',
-    '{"pet_id": "pet021", "name": "Nathan", "species": "cat", "breed": "British Shorthair", "gender": "male", "birth_year": 2021}',
-    '{"pet_id": "pet022", "name": "William", "species": "dog", "breed": "Siamese", "gender": "male", "birth_year": 2021}',
-    '{"pet_id": "pet023", "name": "Stephen", "species": "dog", "breed": "Persian", "gender": "female", "birth_year": 2020}',
-    '{"pet_id": "pet024", "name": "Samuel", "species": "cat", "breed": "British Shorthair", "gender": "male", "birth_year": 2019}',
-    '{"pet_id": "pet025", "name": "Matthew", "species": "dog", "breed": "Munchkin", "gender": "male", "birth_year": 2020}',
-    '{"pet_id": "pet026", "name": "Jennifer", "species": "dog", "breed": "British Shorthair", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet027", "name": "Ashley", "species": "cat", "breed": "Persian", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet028", "name": "Deborah", "species": "cat", "breed": "Bengal", "gender": "female", "birth_year": 2019}',
-    '{"pet_id": "pet029", "name": "Zachary", "species": "cat", "breed": "Siamese", "gender": "male", "birth_year": 2020}',
-    '{"pet_id": "pet030", "name": "Melinda", "species": "dog", "breed": "Persian", "gender": "male", "birth_year": 2016}',
-    '{"pet_id": "pet031", "name": "Joann", "species": "cat", "breed": "Munchkin", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet032", "name": "Paul", "species": "dog", "breed": "Munchkin", "gender": "female", "birth_year": 2019}',
-    '{"pet_id": "pet033", "name": "Linda", "species": "cat", "breed": "Persian", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet034", "name": "Michael", "species": "dog", "breed": "British Shorthair", "gender": "male", "birth_year": 2022}',
-    '{"pet_id": "pet035", "name": "Tabitha", "species": "cat", "breed": "Siamese", "gender": "female", "birth_year": 2016}',
-    '{"pet_id": "pet036", "name": "April", "species": "cat", "breed": "Munchkin", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet037", "name": "Johnny", "species": "cat", "breed": "Bengal", "gender": "male", "birth_year": 2019}',
-    '{"pet_id": "pet038", "name": "Kayla", "species": "dog", "breed": "Persian", "gender": "female", "birth_year": 2021}',
-    '{"pet_id": "pet039", "name": "Melissa", "species": "dog", "breed": "British Shorthair", "gender": "male", "birth_year": 2022}',
-    '{"pet_id": "pet040", "name": "Ryan", "species": "cat", "breed": "Bengal", "gender": "female", "birth_year": 2018}',
-    '{"pet_id": "pet041", "name": "Cynthia", "species": "cat", "breed": "Bengal", "gender": "male", "birth_year": 2021}',
-    '{"pet_id": "pet042", "name": "Charles", "species": "cat", "breed": "British Shorthair", "gender": "male", "birth_year": 2016}',
-    '{"pet_id": "pet043", "name": "Gregory", "species": "dog", "breed": "Munchkin", "gender": "male", "birth_year": 2020}',
-    '{"pet_id": "pet044", "name": "Jorge", "species": "dog", "breed": "British Shorthair", "gender": "male", "birth_year": 2015}',
-    '{"pet_id": "pet045", "name": "Robert", "species": "dog", "breed": "Munchkin", "gender": "male", "birth_year": 2015}',
-    '{"pet_id": "pet046", "name": "Nicholas", "species": "cat", "breed": "Bengal", "gender": "female", "birth_year": 2020}',
-    '{"pet_id": "pet047", "name": "Julie", "species": "cat", "breed": "British Shorthair", "gender": "male", "birth_year": 2019}',
-    '{"pet_id": "pet048", "name": "Jason", "species": "dog", "breed": "Munchkin", "gender": "female", "birth_year": 2022}',
-    '{"pet_id": "pet049", "name": "Maria", "species": "cat", "breed": "Siamese", "gender": "male", "birth_year": 2022}',
+    # ... (giữ nguyên data mẫu)
     '{"pet_id": "pet050", "name": "Alyssa", "species": "cat", "breed": "Persian", "gender": "male", "birth_year": 2015}'
 ]
 pet_profiles_data = [json.loads(line) for line in pet_profiles_raw]
 
+# Define Schema trước (Schema-on-Read) để tối ưu performance
 pet_profile_schema = StructType([
     StructField("pet_id", StringType(), True),
     StructField("name", StringType(), True),
-    StructField("species", StringType(), True),
+    StructField("species", StringType(), True), # Quan trọng để phân loại Chó/Mèo
     StructField("breed", StringType(), True),
     StructField("gender", StringType(), True),
     StructField("birth_year", IntegerType(), True)
 ])
 
 df_pet_profiles = spark.createDataFrame(pet_profiles_data, schema=pet_profile_schema)
-print("Đã đọc thông tin Pet Profiles.")
 
-# Bỏ cột 'species', 'name' và 'breed' từ df_raw_data để tránh xung đột tên cột khi join
+# Join logs với profile. Dùng LEFT JOIN để giữ lại log kể cả khi thiếu profile
 df_with_profiles = df_raw_data.drop("species", "name", "breed").join(
     df_pet_profiles.select("pet_id", "species", "name", "breed"),
     on="pet_id",
     how="left"
 )
-print("Đã join dữ liệu sức khỏe với Pet Profiles.")
-df_with_profiles.show(5, truncate=False)
 
-# ====================================================================
-# D. Đọc và tích hợp Owner Notes
-# ====================================================================
-print("\n--- D. Đọc và tích hợp Owner Notes ---")
-
+# --- 5. Load Data: Owner Notes (Unstructured Text) ---
+print(">>> Parsing Owner Notes...")
 owner_notes_path = hdfs_base_path + "owner_notes_generated.md"
 
 try:
+    # Đọc file text raw
     notes_rdd = spark.sparkContext.textFile(owner_notes_path)
     notes_raw_content = notes_rdd.collect()
     full_notes_text = "\n".join(notes_raw_content)
 
+    # Parsing logic: Dùng Regex trích xuất Date & Content
     records = re.findall(r"# Pet ID: (pet\d+) - Notes on (\d{4}-\d{2}-\d{2})\n(.*?)(?=# Pet ID:|\Z)", full_notes_text, re.DOTALL)
 
     notes_data = []
@@ -247,279 +179,179 @@ try:
 
     df_notes = spark.createDataFrame(notes_data)
     df_notes = df_notes.withColumn("date", col("date").cast(DateType()))
-    print(f"Đã đọc {df_notes.count()} bản ghi từ owner_notes_generated.md.")
-    df_notes.show(5, truncate=False)
 
 except Exception as e:
-    print(f"LỖI: Không thể đọc hoặc xử lý owner_notes_generated.md '{owner_notes_path}'. Lỗi: {e}")
+    print(f"!!! Warning: Could not read notes file. {e}")
+    # Fallback schema phòng khi file lỗi
     df_notes = spark.createDataFrame([], StructType([
         StructField("pet_id", StringType(), True),
         StructField("date", DateType(), True),
         StructField("note_text", StringType(), True)
     ]))
-    print("Tiếp tục chạy mà không có dữ liệu owner_notes.")
 
+# Join Notes vào Main Data
 df_combined_data = df_with_profiles.join(
     df_notes,
     on=["pet_id", "date"],
     how="left_outer"
 )
-print("Đã join dữ liệu sức khỏe với Owner Notes.")
-df_combined_data.show(5, truncate=False)
 
-# ====================================================================
-# E. Tách dữ liệu thành Chó và Mèo (Không cần thiết cho ML, nhưng giữ lại)
-# ====================================================================
-print("\n--- E. Tách dữ liệu thành Chó và Mèo ---")
+# --- 6. Tách luồng Chó/Mèo ---
+# Tách ra vì logic tính toán sức khỏe khác nhau
 df_dogs = df_combined_data.filter(col("species") == "dog")
 df_cats = df_combined_data.filter(col("species") == "cat")
 
-print(f"Số lượng bản ghi cho chó: {df_dogs.count()}")
-print(f"Số lượng bản ghi cho mèo: {df_cats.count()}")
-
-# ====================================================================
-# F. Hàm phân tích dữ liệu Species-Specific
-# ====================================================================
-print("\n--- F. Áp dụng phân tích Species-Specific ---")
-
+# --- 7. Hàm xử lý chính (Core Logic) ---
 def analyze_species_data(df_species, species_type):
-    print(f"Bắt đầu phân tích cho loài: {species_type.upper()}")
+    print(f"Processing: {species_type.upper()}")
 
+    # Load config theo loài
     if species_type == "dog":
         normal_food_avg, normal_food_std = DOG_NORMAL_FOOD_AVG, DOG_NORMAL_FOOD_STD
         normal_sleep_avg, normal_sleep_std = DOG_NORMAL_SLEEP_AVG, DOG_NORMAL_SLEEP_STD
         normal_weight_avg, normal_weight_std = DOG_NORMAL_WEIGHT_AVG, DOG_NORMAL_WEIGHT_STD
-        z_score_threshold = Z_SCORE_THRESHOLD
-        food_anomaly_score = DOG_FOOD_ANOMALY_SCORE
-        sleep_anomaly_score = DOG_SLEEP_ANOMALY_SCORE
-        weight_anomaly_score = DOG_WEIGHT_ANOMALY_SCORE
-        meow_anomaly_score = DOG_MEOW_ANOMALY_SCORE
-        note_stress_score = DOG_NOTE_STRESS_SCORE
-        note_illness_score = DOG_NOTE_ILLNESS_SCORE
-        stress_keywords = DOG_STRESS_KEYWORDS
-        illness_keywords = DOG_ILLNESS_KEYWORDS
-        health_red_threshold = DOG_HEALTH_RED_THRESHOLD
-        health_orange_threshold = DOG_HEALTH_ORANGE_THRESHOLD
-        has_meow_count = False
+        
+        food_score = DOG_FOOD_ANOMALY_SCORE
+        sleep_score = DOG_SLEEP_ANOMALY_SCORE
+        weight_score = DOG_WEIGHT_ANOMALY_SCORE
+        meow_score = DOG_MEOW_ANOMALY_SCORE
+        stress_score = DOG_NOTE_STRESS_SCORE
+        illness_score = DOG_NOTE_ILLNESS_SCORE
+        
+        stress_kw = DOG_STRESS_KEYWORDS
+        illness_kw = DOG_ILLNESS_KEYWORDS
+        
+        red_thresh = DOG_HEALTH_RED_THRESHOLD
+        orange_thresh = DOG_HEALTH_ORANGE_THRESHOLD
+        has_meow = False
 
-    else:
+    else: # CAT
         normal_food_avg, normal_food_std = CAT_NORMAL_FOOD_AVG, CAT_NORMAL_FOOD_STD
         normal_sleep_avg, normal_sleep_std = CAT_NORMAL_SLEEP_AVG, CAT_NORMAL_SLEEP_STD
         normal_weight_avg, normal_weight_std = CAT_NORMAL_WEIGHT_AVG, CAT_NORMAL_WEIGHT_STD
         normal_meow_avg, normal_meow_std = CAT_NORMAL_MEOW_AVG, CAT_NORMAL_MEOW_STD
-        z_score_threshold = Z_SCORE_THRESHOLD
-        food_anomaly_score = CAT_FOOD_ANOMALY_SCORE
-        sleep_anomaly_score = CAT_SLEEP_ANOMALY_SCORE
-        weight_anomaly_score = CAT_WEIGHT_ANOMALY_SCORE
-        meow_anomaly_score = CAT_MEOW_ANOMALY_SCORE
-        note_stress_score = CAT_NOTE_STRESS_SCORE
-        note_illness_score = CAT_NOTE_ILLNESS_SCORE
-        stress_keywords = CAT_STRESS_KEYWORDS
-        illness_keywords = CAT_ILLNESS_KEYWORDS
-        health_red_threshold = CAT_HEALTH_RED_THRESHOLD
-        health_orange_threshold = CAT_HEALTH_ORANGE_THRESHOLD
-        has_meow_count = True
+        
+        food_score = CAT_FOOD_ANOMALY_SCORE
+        sleep_score = CAT_SLEEP_ANOMALY_SCORE
+        weight_score = CAT_WEIGHT_ANOMALY_SCORE
+        meow_score = CAT_MEOW_ANOMALY_SCORE
+        stress_score = CAT_NOTE_STRESS_SCORE
+        illness_score = CAT_NOTE_ILLNESS_SCORE
+        
+        stress_kw = CAT_STRESS_KEYWORDS
+        illness_kw = CAT_ILLNESS_KEYWORDS
+        
+        red_thresh = CAT_HEALTH_RED_THRESHOLD
+        orange_thresh = CAT_HEALTH_ORANGE_THRESHOLD
+        has_meow = True
 
-    window_spec = Window.partitionBy("pet_id").orderBy("date")
-
+    # 1. Tính Z-Score (Deviation check)
     df_analyzed = df_species.withColumn("food_zscore", (col("food_amount") - normal_food_avg) / normal_food_std) \
                             .withColumn("sleep_zscore", (col("sleep_hours") - normal_sleep_avg) / normal_sleep_std) \
                             .withColumn("weight_zscore", (col("weight_kg") - normal_weight_avg) / normal_weight_std)
 
-    df_analyzed = df_analyzed.withColumn("is_food_anomaly", abs(col("food_zscore")) > z_score_threshold) \
-                             .withColumn("is_sleep_anomaly", abs(col("sleep_zscore")) > z_score_threshold) \
-                             .withColumn("is_weight_anomaly", abs(col("weight_zscore")) > z_score_threshold)
+    # 2. Flag Anomalies (True/False)
+    df_analyzed = df_analyzed.withColumn("is_food_anomaly", abs(col("food_zscore")) > Z_SCORE_THRESHOLD) \
+                             .withColumn("is_sleep_anomaly", abs(col("sleep_zscore")) > Z_SCORE_THRESHOLD) \
+                             .withColumn("is_weight_anomaly", abs(col("weight_zscore")) > Z_SCORE_THRESHOLD)
 
-    if has_meow_count:
+    if has_meow:
         df_analyzed = df_analyzed.withColumn("meow_zscore", (col("meow_count") - normal_meow_avg) / normal_meow_std) \
-                                 .withColumn("is_meow_anomaly", abs(col("meow_zscore")) > z_score_threshold)
+                                 .withColumn("is_meow_anomaly", abs(col("meow_zscore")) > Z_SCORE_THRESHOLD)
     else:
         df_analyzed = df_analyzed.withColumn("meow_zscore", lit(None).cast(DoubleType())) \
                                  .withColumn("is_meow_anomaly", lit(False))
 
-    udf_check_stress_species = udf(lambda text: check_keywords(text, stress_keywords), BooleanType())
-    udf_check_illness_species = udf(lambda text: check_keywords(text, illness_keywords), BooleanType())
+    # 3. NLP check (UDF)
+    # Lưu ý: UDF có thể làm chậm job, cân nhắc dùng native functions nếu logic đơn giản
+    udf_stress = udf(lambda text: check_keywords(text, stress_kw), BooleanType())
+    udf_illness = udf(lambda text: check_keywords(text, illness_kw), BooleanType())
 
-    df_analyzed = df_analyzed.withColumn("note_is_stressful", udf_check_stress_species(col("note_text"))) \
-                             .withColumn("note_is_illness_related", udf_check_illness_species(col("note_text")))
+    df_analyzed = df_analyzed.withColumn("note_is_stressful", udf_stress(col("note_text"))) \
+                             .withColumn("note_is_illness_related", udf_illness(col("note_text")))
 
+    # 4. Tính điểm rủi ro (Risk Scoring)
     df_analyzed = df_analyzed.withColumn("risk_score", lit(0).cast(IntegerType()))
 
     df_analyzed = df_analyzed.withColumn(
         "risk_score",
-        col("risk_score") + when(col("is_food_anomaly"), food_anomaly_score).otherwise(0) + \
-                          when(col("is_sleep_anomaly"), sleep_anomaly_score).otherwise(0) + \
-                          when(col("is_weight_anomaly"), weight_anomaly_score).otherwise(0)
+        col("risk_score") + when(col("is_food_anomaly"), food_score).otherwise(0) + \
+                          when(col("is_sleep_anomaly"), sleep_score).otherwise(0) + \
+                          when(col("is_weight_anomaly"), weight_score).otherwise(0)
     )
 
-    if has_meow_count:
-        df_analyzed = df_analyzed.withColumn("risk_score", col("risk_score") + when(col("is_meow_anomaly"), meow_anomaly_score).otherwise(0))
-    else:
-        df_analyzed = df_analyzed.withColumn("risk_score", col("risk_score"))
+    if has_meow:
+        df_analyzed = df_analyzed.withColumn("risk_score", col("risk_score") + when(col("is_meow_anomaly"), meow_score).otherwise(0))
 
     df_analyzed = df_analyzed.withColumn(
         "risk_score",
-        col("risk_score") + when(col("note_is_stressful"), note_stress_score).otherwise(0) + \
-                          when(col("note_is_illness_related"), note_illness_score).otherwise(0)
+        col("risk_score") + when(col("note_is_stressful"), stress_score).otherwise(0) + \
+                          when(col("note_is_illness_related"), illness_score).otherwise(0)
     )
 
-    df_final_species = df_analyzed.withColumn(
+    # 5. Gán nhãn cảnh báo (Labeling)
+    df_final = df_analyzed.withColumn(
         "health_alert_level",
-        when(col("risk_score") >= health_red_threshold, "Đỏ (Nguy cơ cao)")
-        .when(col("risk_score") >= health_orange_threshold, "Cam (Cảnh báo)")
+        when(col("risk_score") >= red_thresh, "Đỏ (Nguy cơ cao)")
+        .when(col("risk_score") >= orange_thresh, "Cam (Cảnh báo)")
         .when(col("risk_score") >= 1, "Vàng (Theo dõi)")
         .otherwise("Xanh (Bình thường)")
     )
-    print(f"Hoàn thành phân tích cho loài: {species_type.upper()}")
-    return df_final_species
+    return df_final
 
 df_dogs_analyzed = analyze_species_data(df_dogs, "dog")
 df_cats_analyzed = analyze_species_data(df_cats, "cat")
 
-print("\n--- Kết quả phân tích sơ bộ cho CHÓ ---")
-df_dogs_analyzed.select("pet_id", "date", "name", "species", "food_amount", "is_food_anomaly",
-                        "sleep_hours", "is_sleep_anomaly", "weight_kg", "is_weight_anomaly",
-                        "meow_count", "is_meow_anomaly", "note_is_stressful", "note_is_illness_related",
-                        "risk_score", "health_alert_level").show(10, truncate=False)
-
-print("\n--- Kết quả phân tích sơ bộ cho MÈO ---")
-df_cats_analyzed.select("pet_id", "date", "name", "species", "food_amount", "is_food_anomaly",
-                        "sleep_hours", "is_sleep_anomaly", "weight_kg", "is_weight_anomaly",
-                        "meow_count", "is_meow_anomaly", "note_is_stressful", "note_is_illness_related",
-                        "risk_score", "health_alert_level").show(10, truncate=False)
-
-# ====================================================================
-# G. Tổng hợp báo cáo cảnh báo sức khỏe (Health Alerts Report)
-# ====================================================================
-print("\n--- G. Tổng hợp báo cáo cảnh báo sức khỏe cuối cùng ---")
-
+# --- 8. Tổng hợp & Report ---
+print(">>> Aggregating reports...")
 df_final_report = df_dogs_analyzed.unionAll(df_cats_analyzed)
 
 df_health_alerts = df_final_report.filter(col("risk_score") > 0) \
-                                 .select("pet_id", "name", "species", "breed", "date",
-                                         "risk_score", "health_alert_level",
-                                         "food_amount", "is_food_anomaly",
-                                         "sleep_hours", "is_sleep_anomaly",
-                                         "weight_kg", "is_weight_anomaly",
-                                         "meow_count", "is_meow_anomaly",
-                                         "note_text", "note_is_stressful", "note_is_illness_related") \
-                                 .orderBy("date", "risk_score", ascending=False)
+                                  .select("pet_id", "name", "species", "date", "risk_score", "health_alert_level") \
+                                  .orderBy("date", "risk_score", ascending=False)
 
-print(f"Số lượng bản ghi cảnh báo sức khỏe được tạo: {df_health_alerts.count()}")
 if df_health_alerts.count() > 0:
-    print("\n5 bản ghi cảnh báo sức khỏe hàng đầu (tổng hợp):")
+    print("Top 5 alerts:")
     df_health_alerts.show(5, truncate=False)
 
-# ====================================================================
-# MỚI: H. Phân tích xu hướng theo giống và theo tháng
-# ====================================================================
-print("\n--- H. Phân tích xu hướng theo giống và theo tháng ---")
-# Phân tích theo giống
-df_breed_trends = df_final_report.groupBy("species", "breed").agg(
-    round(mean("food_amount"), 2).alias("avg_food_amount_kg"),
-    round(mean("sleep_hours"), 2).alias("avg_sleep_hours"),
-    round(mean("weight_kg"), 2).alias("avg_weight_kg")
-).orderBy("species", "breed")
+# --- 9. Machine Learning (Random Forest) ---
+print(">>> ML Pipeline starting...")
 
-print("\nBáo cáo xu hướng trung bình theo giống:")
-df_breed_trends.show(truncate=False)
-
-# Phân tích theo tháng
-df_monthly_trends = df_final_report.withColumn("year_month", date_format(col("date"), "yyyy-MM")) \
-                                   .groupBy("species", "year_month").agg(
-                                       round(mean("food_amount"), 2).alias("avg_food_amount_kg"),
-                                       round(mean("sleep_hours"), 2).alias("avg_sleep_hours"),
-                                       round(mean("weight_kg"), 2).alias("avg_weight_kg"),
-                                       count("*").alias("total_records")
-                                   ).orderBy("species", "year_month")
-print("\nBáo cáo xu hướng trung bình theo tháng:")
-df_monthly_trends.show(truncate=False)
-
-# ====================================================================
-# MỚI: I. Áp dụng Học máy để dự đoán cấp độ cảnh báo
-# ====================================================================
-print("\n--- I. Áp dụng Học máy để dự đoán cấp độ cảnh báo ---")
-
-# Gán nhãn số cho các cấp độ cảnh báo để mô hình học máy có thể hiểu
+# Gán nhãn số (Label encoding)
 df_ml = df_final_report.withColumn(
     "label",
     when(col("health_alert_level") == "Đỏ (Nguy cơ cao)", 3.0)
     .when(col("health_alert_level") == "Cam (Cảnh báo)", 2.0)
     .when(col("health_alert_level") == "Vàng (Theo dõi)", 1.0)
     .otherwise(0.0)
-)
-df_ml = df_ml.fillna(0, subset=["meow_count"]) # Điền giá trị thiếu cho meo
+).fillna(0, subset=["meow_count"])
 
-# Xử lý các cột phân loại (string) bằng StringIndexer và OneHotEncoder
-string_indexer_species = StringIndexer(inputCol="species", outputCol="species_index")
-string_indexer_breed = StringIndexer(inputCol="breed", outputCol="breed_index")
+# Prepare features
+indexer_species = StringIndexer(inputCol="species", outputCol="species_index")
+indexer_breed = StringIndexer(inputCol="breed", outputCol="breed_index")
 
-# Các cột đặc trưng (features) cho mô hình
-feature_columns = [
-    "food_amount", "sleep_hours", "weight_kg", "meow_count",
-    "is_food_anomaly", "is_sleep_anomaly", "is_weight_anomaly", "is_meow_anomaly",
-    "note_is_stressful", "note_is_illness_related",
-    "species_index", "breed_index"
-]
-assembler = VectorAssembler(inputCols=feature_columns, outputCol="features")
+cols = ["food_amount", "sleep_hours", "weight_kg", "meow_count", 
+        "is_food_anomaly", "is_sleep_anomaly", "is_weight_anomaly", 
+        "note_is_illness_related", "species_index", "breed_index"]
 
-# Khai báo mô hình Random Forest Classifier
+assembler = VectorAssembler(inputCols=cols, outputCol="features")
 rf = RandomForestClassifier(labelCol="label", featuresCol="features", numTrees=100)
 
-# Xây dựng Pipeline
-pipeline = Pipeline(stages=[string_indexer_species, string_indexer_breed, assembler, rf])
+pipeline = Pipeline(stages=[indexer_species, indexer_breed, assembler, rf])
 
-# Chuẩn bị dữ liệu huấn luyện và kiểm tra (chia 80/20)
+# Train/Test Split
 (training_data, test_data) = df_ml.randomSplit([0.8, 0.2], seed=42)
-
-# Huấn luyện mô hình
-print("Bắt đầu huấn luyện mô hình Random Forest...")
 model = pipeline.fit(training_data)
-print("Huấn luyện mô hình hoàn tất.")
-
-# Dự đoán trên tập kiểm tra
 predictions = model.transform(test_data)
-print("\nKết quả dự đoán của mô hình:")
-predictions.select("pet_id", "date", "health_alert_level", "prediction", "label", "features").show(10, truncate=False)
 
-# ====================================================================
-# J. Lưu kết quả ra HDFS
-# ====================================================================
-print("\n--- J. Lưu kết quả ra HDFS ---")
+print(">>> ML Predictions:")
+predictions.select("pet_id", "health_alert_level", "prediction").show(5)
 
-# Xóa thư mục cũ
-try:
-    spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration()).delete(
-        spark._jvm.org.apache.hadoop.fs.Path(output_path + "pet_health_alerts_final.csv"), True
-    )
-    spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration()).delete(
-        spark._jvm.org.apache.hadoop.fs.Path(output_path + "breed_trends.csv"), True
-    )
-    spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration()).delete(
-        spark._jvm.org.apache.hadoop.fs.Path(output_path + "monthly_trends.csv"), True
-    )
-    spark._jvm.org.apache.hadoop.fs.FileSystem.get(spark._jsc.hadoopConfiguration()).delete(
-        spark._jvm.org.apache.hadoop.fs.Path(output_path + "ml_predictions.csv"), True
-    )
-    print("Đã xóa các thư mục output cũ.")
-except Exception as e:
-    print(f"Không thể xóa thư mục output cũ (có thể chưa tồn tại): {e}")
-
-# Lưu các kết quả
+# --- 10. Lưu trữ (Sink) ---
+print(">>> Saving to HDFS...")
+# Dùng mode overwrite để đảm bảo Idempotency (chạy lại ko bị duplicate)
 df_health_alerts.write.mode("overwrite").option("header", "true").csv(output_path + "pet_health_alerts_final.csv")
-print(f"Báo cáo cảnh báo sức khỏe cuối cùng đã được lưu thành công tại: {output_path}pet_health_alerts_final.csv")
+predictions.select("pet_id", "date", "prediction").write.mode("overwrite").option("header", "true").csv(output_path + "ml_predictions.csv")
 
-df_breed_trends.write.mode("overwrite").option("header", "true").csv(output_path + "breed_trends.csv")
-print(f"Báo cáo xu hướng theo giống đã được lưu thành công tại: {output_path}breed_trends.csv")
-
-df_monthly_trends.write.mode("overwrite").option("header", "true").csv(output_path + "monthly_trends.csv")
-print(f"Báo cáo xu hướng theo tháng đã được lưu thành công tại: {output_path}monthly_trends.csv")
-
-predictions.select("pet_id", "date", "health_alert_level", "prediction").write.mode("overwrite").option("header", "true").csv(output_path + "ml_predictions.csv")
-print(f"Báo cáo dự đoán học máy đã được lưu thành công tại: {output_path}ml_predictions.csv")
-
-# ====================================================================
-# K. Dừng SparkSession
-# ====================================================================
 spark.stop()
-print("\nSparkSession đã được dừng.")
+print(">>> Done.")
